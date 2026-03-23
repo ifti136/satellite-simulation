@@ -13,14 +13,13 @@ Click       Pick satellite → open info popup
 Esc         Close popup / quit (when no popup)
 """
 import sys
+import math
 import numpy as np
 
 import pygame
 from pygame.locals import *
-from OpenGL.GL import *
-
-# FIX #10: removed unused `from OpenGL.GLU import gluPerspective` — projection
-# is handled entirely inside camera.apply() via a manual matrix.
+from OpenGL.GL  import *
+from OpenGL.GLU import gluPerspective
 
 import config
 from scene      import Scene
@@ -56,7 +55,7 @@ def main() -> None:
 
     init_gl(config.WINDOW_WIDTH, config.WINDOW_HEIGHT)
 
-    # ── Build scene objects (must be after GL context) ────────────────────────
+    # ── Build scene objects (must be after GL context) ─────────────────────────
     print("[main] Loading scene …")
     scene  = Scene()
     camera = Camera()
@@ -82,6 +81,7 @@ def main() -> None:
                     running = False
 
             elif event.type == MOUSEBUTTONDOWN and event.button == 1:
+                # Satellite picking (only in solar & earth-tpp modes)
                 if not popup.visible and camera.mode in (
                     config.CAM_MODE_SOLAR, config.CAM_MODE_EARTH_TPP
                 ):
@@ -89,6 +89,7 @@ def main() -> None:
                     hit = scene.pick_satellite(ray_o, ray_d)
                     if hit:
                         popup.show(hit)
+                        # Also select that satellite
                         sat_names = ["ISS", "Hubble", "Starlink"]
                         if hit in sat_names:
                             camera.sat_idx = sat_names.index(hit)
@@ -103,9 +104,13 @@ def main() -> None:
         # ── Render ────────────────────────────────────────────────────────────
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
+        # Apply camera (sets projection + modelview)
         camera.apply()
+
+        # Draw 3-D scene
         scene.draw(camera.eye_position)
 
+        # 2-D overlays
         hud.draw(camera, scene.satellites, scene.earth_world, scene.sim_time)
         popup.draw()
 

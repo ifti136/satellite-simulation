@@ -104,17 +104,14 @@ class Earth:
 
     @property
     def model_matrix(self) -> np.ndarray:
-        """Combined rotation matrix: axis tilt (Z) then spin (Y)."""
+        """Combined rotation matrix for Earth's axis tilt + spin."""
         return _rot_z(AXIS_TILT) @ _rot_y(self.rotation_angle)
 
     # ── Update ─────────────────────────────────────────────────────────────────
 
     def update(self, dt: float) -> None:
         self.solar_orbit.update(dt)
-        self.rotation_angle += config.EARTH_ROTATION_SPEED * dt
-        # Reset periodically to avoid float precision drift
-        if self.rotation_angle > 2 * math.pi:
-            self.rotation_angle -= 2 * math.pi
+        self.rotation_angle = (self.rotation_angle + config.EARTH_ROTATION_SPEED * dt) % (2 * math.pi)
 
     # ── Draw ───────────────────────────────────────────────────────────────────
 
@@ -123,16 +120,9 @@ class Earth:
         mm = self.model_matrix
 
         glPushMatrix()
-
-        # FIX: Apply rotation FIRST (around local origin), THEN translate to
-        # world position.  Previously the order was reversed which made Earth
-        # spin around the world origin instead of its own centre.
-        #
-        # OpenGL matrix multiplication order: last glMultMatrix call is
-        # applied first to vertices, so we must call translate last.
         glTranslatef(float(wp[0]), float(wp[1]), float(wp[2]))
-        # Now apply tilt + spin in Earth-local space
-        glMultMatrixf(mm.T)   # mm is row-major, OpenGL needs column-major → .T
+        # Apply tilt + spin via matrix multiply
+        glMultMatrixf(mm.T)   # OpenGL column-major
 
         # ── Atmosphere (rim-glow) ─────────────────────────────────────────────
         glEnable(GL_BLEND)
@@ -153,6 +143,7 @@ class Earth:
         # ── Earth body ────────────────────────────────────────────────────────
         glUseProgram(self._shader)
 
+        # Supply uniforms
         glUniformMatrix4fv(self._u_modelRot, 1, GL_TRUE, mm)
         glUniform3f(self._u_earthPos, float(wp[0]), float(wp[1]), float(wp[2]))
         glUniform3f(self._u_sunPos,   0.0, 0.0, 0.0)

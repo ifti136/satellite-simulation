@@ -6,9 +6,9 @@ Each satellite is rendered using OpenGL immediate-mode geometry
 A fading orbit trail is drawn as a line strip.
 """
 import math
-import collections
 import numpy as np
 from OpenGL.GL import *
+from ctypes import c_void_p
 
 import shaders
 import config
@@ -21,6 +21,7 @@ def _box_normals_verts(sx, sy, sz):
     """Return flat list of (normal, vertex) pairs forming a box."""
     hx, hy, hz = sx / 2, sy / 2, sz / 2
     faces = [
+        # normal        vertices (4 per face)
         (( 0, 0, 1),  [(-hx,-hy, hz),( hx,-hy, hz),( hx, hy, hz),(-hx, hy, hz)]),
         (( 0, 0,-1),  [( hx,-hy,-hz),(-hx,-hy,-hz),(-hx, hy,-hz),( hx, hy,-hz)]),
         (( 1, 0, 0),  [( hx,-hy, hz),( hx,-hy,-hz),( hx, hy,-hz),( hx, hy, hz)]),
@@ -41,7 +42,7 @@ def _draw_box(sx, sy, sz):
 
 
 def _draw_panel(w, h, nx, ny, nz):
-    """Flat quad (solar panel) — double-sided."""
+    """Flat quad (solar panel)."""
     hw, hh = w / 2, h / 2
     glBegin(GL_QUADS)
     glNormal3f(nx, ny, nz)
@@ -53,27 +54,22 @@ def _draw_panel(w, h, nx, ny, nz):
     glEnd()
 
 
-# ── Global sun direction (set each frame by scene.py before draw calls) ────────
-sun_eye_dir_global = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-
-
 # ── Base Satellite class ────────────────────────────────────────────────────────
 
 class Satellite:
     """Abstract base for all satellites."""
 
-    TRAIL_LEN = 120
+    TRAIL_LEN = 120     # number of positions kept for trail
 
     def __init__(self, name: str, orbit: Orbit):
         self.name  = name
         self.orbit = orbit
         self.data  = config.SATELLITES_DATA[name]
 
-        # FIX #4: use deque with maxlen for O(1) append/pop instead of list.pop(0)
-        self._trail: collections.deque = collections.deque(maxlen=self.TRAIL_LEN)
-        self._panel_angle = 0.0
+        self._trail: list = []          # world positions
+        self._panel_angle = 0.0        # slow spin of solar panels
 
-        # Phong shader
+        # Phong shader (no texture – use colour)
         self._shader     = shaders.link_program(shaders.PHONG_VERT, shaders.PHONG_FRAG)
         self._u_tex      = glGetUniformLocation(self._shader, "u_tex")
         self._u_lightDir = glGetUniformLocation(self._shader, "u_lightDir")
@@ -98,32 +94,33 @@ class Satellite:
         self.orbit.update(dt)
         self._panel_angle += dt * 0.3
         wp = self.world_position(earth_world)
-        # FIX #4: deque.append automatically drops oldest when maxlen is reached
         self._trail.append(wp.copy())
+        if len(self._trail) > self.TRAIL_LEN:
+            self._trail.pop(0)
 
     # ── Draw ─────────────────────────────────────────────────────────────────
 
     def draw(self, earth_world: np.ndarray, sun_eye_dir: np.ndarray) -> None:
-        wp  = self.world_position(earth_world)
-        fwd = self.velocity_direction()
+        wp = self.world_position(earth_world)
+        fwd = self.velocity_direction()        # orbit tangent  (+X if 0°)
         up  = np.array([0.0, 1.0, 0.0])
-        right  = np.cross(fwd, up)
-        r_norm = np.linalg.norm(right)
-        right_n = right / (r_norm + 1e-9)
+        right = np.cross(fwd, up)
+        right_n = right / (np.linalg.norm(right) + 1e-9)
         up_n    = np.cross(right_n, fwd)
 
+        # Build orientation matrix aligning satellite to orbit direction
         R = np.eye(4, dtype=np.float64)
         R[:3, 0] = fwd
         R[:3, 1] = up_n
         R[:3, 2] = right_n
 
+        # Draw orbit trail
         self._draw_trail()
 
+        # Draw satellite body
         glPushMatrix()
         glTranslatef(*wp)
-        glMultMatrixd(R.T)
-        # FIX #3: pass sun_eye_dir argument down to _draw_body so subclasses
-        # use the correct per-frame value instead of always reading the global.
+        glMultMatrixd(R.T)     # column-major
         self._draw_body(sun_eye_dir)
         glPopMatrix()
 
@@ -131,9 +128,12 @@ class Satellite:
         """Subclasses implement satellite-specific geometry."""
         raise NotImplementedError
 
-    # FIX #1 & #2: _set_material() removed entirely.
-    # It referenced an undefined bare name `sun_eye_dir` (NameError) and was
-    # never called — each subclass sets uniforms directly inside _draw_body().
+    def _set_material(self, r, g, b, spec: float = 60.0) -> None:
+        glUseProgram(self._shader)
+        glUniform3f(self._u_lightDir, *sun_eye_dir_global)
+        glUniform3f(self._u_color,    r, g, b)
+        glUniform1f(self._u_specPow,  spec)
+        glUniform1f(self._u_hasTex,   0.0)
 
     def _draw_trail(self) -> None:
         if len(self._trail) < 2:
@@ -151,7 +151,7 @@ class Satellite:
         glEnable(GL_DEPTH_TEST)
         glColor4f(1, 1, 1, 1)
 
-    # ── Click detection ───────────────────────────────────────────────────────
+    # Click detection ─────────────────────────────────────────────────────────
 
     def is_hit_by_ray(self, ray_origin: np.ndarray, ray_dir: np.ndarray,
                       earth_world: np.ndarray, radius: float = 0.25) -> bool:
@@ -161,6 +161,10 @@ class Satellite:
         b  = 2.0 * np.dot(oc, ray_dir)
         c  = np.dot(oc, oc) - radius ** 2
         return (b * b - 4 * c) > 0
+
+
+# ── Global for material helper (set before draw call from scene) ──────────────
+sun_eye_dir_global = np.array([1.0, 0.0, 0.0], dtype=np.float32)
 
 
 # ── ISS ──────────────────────────────────────────────────────────────────────
@@ -173,16 +177,15 @@ class ISS(Satellite):
         )
 
     def _draw_body(self, sun_eye_dir: np.ndarray) -> None:
-        # FIX #3: use the passed-in sun_eye_dir argument (not sun_eye_dir_global)
-        body_col  = self.data["color"]
-        panel_col = self.data["panel_color"]
+        body_col   = self.data["color"]
+        panel_col  = self.data["panel_color"]
 
         glUseProgram(self._shader)
         glUniform3f(self._u_lightDir, *sun_eye_dir)
         glUniform1f(self._u_hasTex, 0.0)
         glUniform1f(self._u_specPow, 80.0)
 
-        # Central truss
+        # Central truss (long beam)
         glUniform3f(self._u_color, *body_col)
         _draw_box(1.4, 0.05, 0.05)
 
@@ -211,12 +214,10 @@ class Hubble(Satellite):
     def __init__(self):
         super().__init__(
             "Hubble",
-            Orbit(config.HUBBLE_ORBIT_RADIUS, 28.5, config.HUBBLE_ORBIT_SPEED,
-                  phase=math.pi * 0.7),
+            Orbit(config.HUBBLE_ORBIT_RADIUS, 28.5, config.HUBBLE_ORBIT_SPEED, phase=math.pi * 0.7),
         )
 
     def _draw_body(self, sun_eye_dir: np.ndarray) -> None:
-        # FIX #3: use the passed-in sun_eye_dir argument
         body_col  = self.data["color"]
         panel_col = self.data["panel_color"]
 
@@ -225,9 +226,9 @@ class Hubble(Satellite):
         glUniform1f(self._u_hasTex, 0.0)
         glUniform1f(self._u_specPow, 55.0)
 
-        # Main tube
+        # Cylindrical body (approximated with rectangular prisms)
         glUniform3f(self._u_color, *body_col)
-        _draw_box(0.14, 0.14, 0.50)
+        _draw_box(0.14, 0.14, 0.50)   # main tube
 
         # Mirror aperture
         glPushMatrix(); glTranslatef(0, 0, 0.27)
@@ -253,12 +254,10 @@ class Starlink(Satellite):
     def __init__(self):
         super().__init__(
             "Starlink",
-            Orbit(config.STARLINK_ORBIT_RADIUS, 53.0, config.STARLINK_ORBIT_SPEED,
-                  phase=math.pi * 1.4),
+            Orbit(config.STARLINK_ORBIT_RADIUS, 53.0, config.STARLINK_ORBIT_SPEED, phase=math.pi * 1.4),
         )
 
     def _draw_body(self, sun_eye_dir: np.ndarray) -> None:
-        # FIX #3: use the passed-in sun_eye_dir argument
         body_col  = self.data["color"]
         panel_col = self.data["panel_color"]
 
@@ -271,7 +270,7 @@ class Starlink(Satellite):
         glUniform3f(self._u_color, *body_col)
         _draw_box(0.28, 0.06, 0.14)
 
-        # Single wide solar array
+        # Single wide solar array (one side)
         glPushMatrix()
         glTranslatef(0.32, 0, 0)
         glRotatef(math.degrees(self._panel_angle * 0.15), 1, 0, 0)

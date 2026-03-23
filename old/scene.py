@@ -8,10 +8,10 @@ from OpenGL.GL import *
 
 import config
 import satellite as sat_module
-from sun   import Sun
-from earth import Earth
-from moon  import Moon
-from skybox import Skybox
+from sun     import Sun
+from earth   import Earth
+from moon    import Moon
+from skybox  import Skybox
 
 
 class Scene:
@@ -50,37 +50,29 @@ class Scene:
     def draw(self, cam_eye: np.ndarray) -> None:
         ew = self.earth_world
 
-        # FIX #8: read the modelview matrix immediately after camera.apply()
-        # has set it (before any glPushMatrix/glTranslatef calls distort it).
-        # This gives the correct camera-space transform for converting the
-        # sun's world position into eye-space for Phong shading.
+        # Compute sun direction in eye-space for Phong shaders
         vm = np.array(glGetFloatv(GL_MODELVIEW_MATRIX),
                       dtype=np.float32).reshape(4, 4)
-
-        # Sun is at world origin (0,0,0); transform into eye space
         sun4 = vm.T @ np.array([0.0, 0.0, 0.0, 1.0])
-        # Earth world position in eye space
         ep4  = vm.T @ np.array([*ew, 1.0])
-        # Direction from earth to sun in eye space, normalised
         sun_eye_dir = sun4[:3] - ep4[:3]
         nd = np.linalg.norm(sun_eye_dir)
         if nd > 0:
             sun_eye_dir /= nd
 
-        # Publish for satellite draw methods via module global
+        # Make available to satellite draw methods
         sat_module.sun_eye_dir_global = sun_eye_dir.astype(np.float32)
 
-        # Draw order: skybox (no depth write) → scene objects
+        # Draw order: skybox first (no depth write), then scene
         self.skybox.draw()
         self.sun.draw()
         self.earth.draw(cam_eye)
         self.moon.draw(ew, sun_eye_dir)
 
+        # Enable blending for trails
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         for s in self.satellites:
-            # FIX #3 (satellite): pass sun_eye_dir explicitly so each satellite
-            # uses the correct per-frame value in its _draw_body() shader call.
             s.draw(ew, sun_eye_dir)
         glDisable(GL_BLEND)
 
@@ -89,31 +81,21 @@ class Scene:
     def pick_satellite(self, ray_origin: np.ndarray,
                        ray_dir: np.ndarray) -> str | None:
         """
-        Return the name of the nearest satellite hit by the pick ray, or None.
-
-        FIX #9: delegate the ray-sphere test to Satellite.is_hit_by_ray() to
-        avoid duplicating the discriminant formula.  We still need the hit
-        distance to pick the nearest satellite, so we compute t separately
-        only for confirmed hits.
+        Return the name of the satellite hit by the pick ray, or None.
+        Satellites are tested in order; smallest bounding-sphere hit wins.
         """
         ew = self.earth_world
         best_name = None
         best_dist = math.inf
-
         for s in self.satellites:
-            if not s.is_hit_by_ray(ray_origin, ray_dir, ew):
-                continue
-
-            # Compute closest-hit distance t for depth ordering
-            centre = s.world_position(ew)
-            oc   = ray_origin - centre
-            b    = 2.0 * np.dot(oc, ray_dir)
-            c    = np.dot(oc, oc) - 0.25 ** 2
+            wp  = s.world_position(ew)
+            oc  = ray_origin - wp
+            b   = 2.0 * np.dot(oc, ray_dir)
+            c   = np.dot(oc, oc) - 0.25 ** 2
             disc = b * b - 4 * c
             if disc > 0:
                 t = (-b - math.sqrt(disc)) / 2.0
                 if 0 < t < best_dist:
                     best_dist = t
                     best_name = s.name
-
         return best_name

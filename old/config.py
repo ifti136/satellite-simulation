@@ -23,9 +23,9 @@ SUN_DISTANCE  = 40.0      # Earth–Sun distance in sim units
 # Moon orbit around Earth
 MOON_ORBIT_RADIUS = 4.5
 
-# Satellite orbits around Earth (scaled up for visibility)
-ISS_ORBIT_RADIUS      = 2.0
-HUBBLE_ORBIT_RADIUS   = 2.4
+# Satellite orbits around Earth (scaled up for visibility; real ~1.07 ER)
+ISS_ORBIT_RADIUS     = 2.0
+HUBBLE_ORBIT_RADIUS  = 2.4
 STARLINK_ORBIT_RADIUS = 2.7
 
 # Real-world orbital data (shown in HUD/popup)
@@ -42,8 +42,8 @@ SATELLITES_DATA = {
         "description":  ("The ISS is a modular space station in low Earth orbit.\n"
                          "It is the largest human-made body ever placed in space\n"
                          "and serves as a microgravity research lab."),
-        "color":        (0.85, 0.88, 0.92),
-        "panel_color":  (0.18, 0.30, 0.55),
+        "color":        (0.85, 0.88, 0.92),   # silver-white
+        "panel_color":  (0.18, 0.30, 0.55),   # deep blue panels
     },
     "Hubble": {
         "full_name":    "Hubble Space Telescope",
@@ -57,8 +57,8 @@ SATELLITES_DATA = {
         "description":  ("HST is a space telescope that was launched into\n"
                          "low Earth orbit in 1990. It has contributed greatly\n"
                          "to our understanding of the universe."),
-        "color":        (0.80, 0.80, 0.75),
-        "panel_color":  (0.60, 0.70, 0.30),
+        "color":        (0.80, 0.80, 0.75),   # aluminium
+        "panel_color":  (0.60, 0.70, 0.30),   # golden-yellow panels
     },
     "Starlink": {
         "full_name":    "Starlink GROUP 6-30",
@@ -72,26 +72,23 @@ SATELLITES_DATA = {
         "description":  ("Part of SpaceX's Starlink constellation.\n"
                          "A flat-panel satellite designed to provide\n"
                          "broadband internet globally."),
-        "color":        (0.70, 0.70, 0.70),
-        "panel_color":  (0.10, 0.18, 0.35),
+        "color":        (0.70, 0.70, 0.70),   # dark grey body
+        "panel_color":  (0.10, 0.18, 0.35),   # dark solar array
     },
 }
 
-# ── Time ──────────────────────────────────────────────────────────────────────
-#
-# All speeds slowed down significantly from the original:
-#   - Earth orbit:    was 60 s/rev  → now 180 s/rev  (3×  slower)
-#   - Earth spin:     was 15 s/rev  → now  60 s/rev  (4×  slower)
-#   - Moon orbit:     was 20 s/rev  → now  90 s/rev  (4.5× slower)
-#   - Satellites:     were 5–7 s/rev → now 20–30 s/rev (4–5× slower)
-#
-EARTH_ORBIT_SPEED    = (2 * math.pi) / 180.0   # full orbit in 180 sim-seconds
-EARTH_ROTATION_SPEED = (2 * math.pi) / 60.0    # axis spin: 60 s/rev
-MOON_ORBIT_SPEED     = (2 * math.pi) / 90.0    # moon orbit: 90 s/rev
+# ── Time ─────────────────────────────────────────────────────────────────────
+# Angular velocities (radians/second of SIMULATION time)
+# Earth orbit around Sun: full loop in ~60 s sim time
+EARTH_ORBIT_SPEED    = (2 * math.pi) / 60.0
+EARTH_ROTATION_SPEED = (2 * math.pi) / 15.0   # axis spin, 15 s/rev
+MOON_ORBIT_SPEED     = (2 * math.pi) / 20.0
 
-ISS_ORBIT_SPEED      = (2 * math.pi) / 20.0    # ISS: 20 s/rev
-HUBBLE_ORBIT_SPEED   = (2 * math.pi) / 25.0    # Hubble: 25 s/rev
-STARLINK_ORBIT_SPEED = (2 * math.pi) / 22.0    # Starlink: 22 s/rev
+# Satellite angular velocities derived from v = sqrt(GM/r^3)
+# We just use nice visible values
+ISS_ORBIT_SPEED      = (2 * math.pi) / 5.0
+HUBBLE_ORBIT_SPEED   = (2 * math.pi) / 7.0
+STARLINK_ORBIT_SPEED = (2 * math.pi) / 6.0
 
 # ── Camera ────────────────────────────────────────────────────────────────────
 CAM_MODE_SOLAR     = "solar"

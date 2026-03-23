@@ -31,11 +31,6 @@ def link_program(vert_src: str, frag_src: str) -> int:
 
 
 # ── Earth Shader (day/night blend + specular) ─────────────────────────────────
-#
-# FIX: gl_Position now uses the rotated vertex (via u_modelRot) so that the
-# rendered position on screen matches the world-space lighting position.
-# Previously gl_Position used raw gl_Vertex, causing a mismatch between where
-# the sphere appeared and where its day/night terminator was computed.
 
 EARTH_VERT = """
 #version 120
@@ -43,28 +38,16 @@ varying vec3 vWorldNormal;
 varying vec2 vTexCoord;
 varying vec3 vWorldPos;
 
-uniform mat4 u_modelRot;   // earth tilt + spin rotation (4x4)
-uniform vec3 u_earthPos;   // earth world-space position
+uniform mat4  u_modelRot;   // earth rotation matrix (3×3 in 4×4 wrapper)
+uniform vec3  u_earthPos;   // earth world-space position
 
 void main() {
-    // Rotate vertex into world-oriented space
+    // World position = earth_pos + rotated vertex
     vec4 rotated  = u_modelRot * gl_Vertex;
-
-    // World position for lighting
-    vWorldPos    = u_earthPos + rotated.xyz;
-
-    // World normal for lighting
-    vWorldNormal = normalize(mat3(u_modelRot) * gl_Normal);
-
-    // UV pass-through
-    vTexCoord    = gl_MultiTexCoord0.xy;
-
-    // FIX: use the rotated vertex for clip-space position so the rendered
-    // sphere matches the lighting.  The ModelView matrix already has the
-    // translate+rotate from glTranslatef + glMultMatrixf in earth.draw(),
-    // so we can use gl_ModelViewProjectionMatrix directly on gl_Vertex here
-    // (the CPU-side rotation is already baked into the matrix stack).
-    gl_Position  = gl_ModelViewProjectionMatrix * gl_Vertex;
+    vWorldPos     = u_earthPos + rotated.xyz;
+    vWorldNormal  = normalize(mat3(u_modelRot) * gl_Normal);
+    vTexCoord     = gl_MultiTexCoord0.xy;
+    gl_Position   = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
 }
 """
 
@@ -72,8 +55,8 @@ EARTH_FRAG = """
 #version 120
 uniform sampler2D u_dayTex;
 uniform sampler2D u_nightTex;
-uniform vec3      u_sunPos;
-uniform vec3      u_camPos;
+uniform vec3      u_sunPos;      // world space sun position
+uniform vec3      u_camPos;      // world space camera position
 
 varying vec3 vWorldNormal;
 varying vec2 vTexCoord;
@@ -84,19 +67,21 @@ void main() {
     vec3  sunDir  = normalize(u_sunPos - vWorldPos);
     float NdotL   = dot(N, sunDir);
 
+    // Day / night blend with soft terminator
     float dayBlend   = smoothstep(-0.12, 0.18, NdotL);
     float nightBlend = 1.0 - smoothstep(-0.18, 0.12, NdotL);
 
     vec3 dayCol   = texture2D(u_dayTex,   vTexCoord).rgb;
     vec3 nightCol = texture2D(u_nightTex, vTexCoord).rgb;
 
+    // Specular highlight (ocean glint)
     vec3  viewDir = normalize(u_camPos - vWorldPos);
     vec3  halfVec = normalize(sunDir + viewDir);
     float spec    = pow(max(dot(N, halfVec), 0.0), 90.0) * max(NdotL, 0.0);
 
     vec3 color = dayCol * dayBlend + nightCol * nightBlend;
-    color += vec3(0.45, 0.65, 1.0) * spec * 0.7;
-    color += dayCol * 0.04;
+    color += vec3(0.45, 0.65, 1.0) * spec * 0.7;  // blue-white ocean shimmer
+    color += dayCol * 0.04;                         // minimal ambient
 
     gl_FragColor = vec4(color, 1.0);
 }
@@ -120,10 +105,10 @@ void main() {
 PHONG_FRAG = """
 #version 120
 uniform sampler2D u_tex;
-uniform vec3      u_lightDir;
-uniform vec3      u_color;
-uniform float     u_specPow;
-uniform float     u_hasTexture;
+uniform vec3      u_lightDir;    // eye-space light direction
+uniform vec3      u_color;       // fallback tint when no texture
+uniform float     u_specPow;     // specular exponent
+uniform float     u_hasTexture;  // 1.0 = use texture, 0.0 = use u_color
 
 varying vec3 vNormal;
 varying vec3 vViewPos;
@@ -175,7 +160,7 @@ void main() {
 }
 """
 
-# ── Atmosphere Glow (additive rim-lighting) ───────────────────────────────────
+# ── Atmosphere Glow (additive, rim-lighting) ──────────────────────────────────
 
 ATMO_VERT = """
 #version 120
