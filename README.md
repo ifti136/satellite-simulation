@@ -5,7 +5,7 @@ A real-time 3D solar system simulation built with Python, PyOpenGL, and pygame. 
 ---
 
 ## Screenshots
-![Solar Image](screenshots/solar view.png)
+![Solar Image](screenshots/solar\view.png)
 ![Earth Image](screenshots/earth view.png)
 ![Satellite Image](screenshots/satellite view.png)
 ![Hubble Image](screenshots/hubble.png)
