@@ -70,17 +70,25 @@ def _upload_vbos(verts, norms, uvs, indices):
 
 
 def _draw_vbos(vbo_v, vbo_n, vbo_u, ibo, index_count):
+    """
+    Draw indexed triangles from VBOs.
+    vbo_u may be None — in that case the texture-coordinate client state is
+    skipped entirely (used for the atmosphere shell which has no UVs).
+    """
     glEnableClientState(GL_VERTEX_ARRAY)
     glEnableClientState(GL_NORMAL_ARRAY)
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY)
     glBindBuffer(GL_ARRAY_BUFFER, vbo_v); glVertexPointer(3, GL_FLOAT, 0, None)
     glBindBuffer(GL_ARRAY_BUFFER, vbo_n); glNormalPointer(GL_FLOAT, 0, None)
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_u); glTexCoordPointer(2, GL_FLOAT, 0, None)
+    if vbo_u is not None:
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_u)
+        glTexCoordPointer(2, GL_FLOAT, 0, None)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo)
     glDrawElements(GL_TRIANGLES, index_count, GL_UNSIGNED_INT, None)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
     glBindBuffer(GL_ARRAY_BUFFER, 0)
-    glDisableClientState(GL_TEXTURE_COORD_ARRAY)
+    if vbo_u is not None:
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY)
     glDisableClientState(GL_NORMAL_ARRAY)
     glDisableClientState(GL_VERTEX_ARRAY)
 
@@ -264,11 +272,12 @@ class Planet:
         self._vbo_v, self._vbo_n, self._vbo_u, self._ibo, self._idx = \
             _upload_vbos(verts, norms, uvs, indices)
 
-        # Atmosphere shell (slightly larger sphere)
+        # Atmosphere shell (slightly larger sphere) — no UVs needed
         atmo_r = self._radius * 1.06
-        av, an, _, ai = generate_sphere(32, 32, atmo_r)
-        self._atmo_vbo_v, self._atmo_vbo_n, _, self._atmo_ibo, self._atmo_idx = \
-            _upload_vbos(av, an, np.zeros((len(av),2), np.float32), ai)
+        av, an, au, ai = generate_sphere(32, 32, atmo_r)
+        self._atmo_vbo_v, self._atmo_vbo_n, self._atmo_vbo_u, \
+            self._atmo_ibo, self._atmo_idx = \
+            _upload_vbos(av, an, au, ai)
 
         # Textures
         tex_path = f"{tex_dir}/{data['texture']}"
@@ -359,7 +368,7 @@ class Planet:
         glUniform3f(self._atmo_col_loc, *self._atmo_color)
         glUniform1f(self._atmo_alpha_loc, 0.65)
         _draw_vbos(self._atmo_vbo_v, self._atmo_vbo_n,
-                   np.zeros((1,), np.float32),    # uvs unused in atmo
+                   None,               # atmosphere shader uses no UVs
                    self._atmo_ibo, self._atmo_idx)
         glCullFace(GL_BACK)
         glDepthMask(GL_TRUE)
