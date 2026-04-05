@@ -1,6 +1,6 @@
 # Satellite Simulation
 
-A real-time 3D solar system simulation built with Python, PyOpenGL, and pygame. Features all 8 planets with moons and Saturn's rings, three real NASA satellites in Earth orbit, multiple camera modes, and an interactive HUD with time controls.
+A 3D solar system simulation built with Python, PyOpenGL, and pygame. Features all 8 planets, moons and Saturn's rings, three real NASA satellites in Earth orbit, multiple camera modes, and an interactive HUD with time controls.
 
 ---
 
