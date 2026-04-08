@@ -45,8 +45,8 @@ pip install PyOpenGL PyOpenGL_accelerate pygame Pillow numpy
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/nasa-orbital-simulation.git
-cd nasa-orbital-simulation
+git clone https://github.com/ifti136/satellite-simulation.git
+cd satellite-simulation
 pip install PyOpenGL PyOpenGL_accelerate pygame Pillow numpy
 ```
 
