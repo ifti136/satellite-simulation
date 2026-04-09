@@ -1,5 +1,5 @@
 """
-main.py — Entry point for NASA Orbital Simulation.
+main.py — Entry point for Satellite Simulation.
 
 Controls
 --------

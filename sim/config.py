@@ -1,12 +1,12 @@
 """
-config.py — Global constants for the NASA Orbital Simulation
+config.py — Global constants for the Satellite Simulation
 """
 import math
 
 # ── Window ────────────────────────────────────────────────────────────────────
 WINDOW_WIDTH  = 1280
 WINDOW_HEIGHT = 720
-WINDOW_TITLE  = "NASA Orbital Simulation"
+WINDOW_TITLE  = "Satellite Simulation"
 FPS           = 60
 FOV           = 50.0
 NEAR_CLIP     = 0.05
