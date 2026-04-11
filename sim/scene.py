@@ -10,6 +10,7 @@ import satellite as sat_module
 from sun     import Sun
 from planet  import Planet
 from skybox  import Skybox
+from midpoint_circle import circle_points
 
 
 class Scene:
@@ -29,6 +30,28 @@ class Scene:
 
         self.sim_time   = 0.0
         self.time_scale = 1.0          # set by HUD buttons
+
+        # Pre-compute orbit guide vertex lists once using MCA.
+        # Each planet gets a list of (x, z) pairs for its orbit circle.
+        self._orbit_guide_pts = self._build_orbit_guides()
+
+    # ── Orbit guide pre-computation ───────────────────────────────────────────
+
+    @staticmethod
+    def _build_orbit_guides() -> list[list[tuple[float, float]]]:
+        """
+        Build one circle-point list per planet using the Midpoint Circle
+        Algorithm.  Called once at startup — zero trig per draw call.
+
+        Returns a list (one entry per planet) of (x, z) float tuples.
+        """
+        N = 180   # guide circle resolution
+        unit_pts = circle_points(N)   # (cos, sin) × N via MCA
+        guides = []
+        for planet_data in config.PLANETS_DATA:
+            r = planet_data["orbit_radius"]
+            guides.append([(cx * r, cz * r) for (cx, cz) in unit_pts])
+        return guides
 
     # ── Accessors ─────────────────────────────────────────────────────────────
 
@@ -67,7 +90,7 @@ class Scene:
         self.skybox.draw()
         self.sun.draw()
 
-        # Orbit guide circles (thin lines at each planet's orbital radius)
+        # Orbit guide circles
         self._draw_orbit_guides()
 
         for planet in self.planets:
@@ -80,20 +103,24 @@ class Scene:
         glDisable(GL_BLEND)
 
     def _draw_orbit_guides(self) -> None:
-        """Faint dashed circles showing each planet's orbital path."""
+        """
+        Faint dashed circles showing each planet's orbital path.
+
+        Vertex positions come from the MCA-generated lookup table built in
+        __init__ — no trig calls here at all.
+        """
         glDisable(GL_DEPTH_TEST)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glLineWidth(0.8)
-        N = 180
-        for planet_data in config.PLANETS_DATA:
-            r = planet_data["orbit_radius"]
+
+        for pts in self._orbit_guide_pts:
             glBegin(GL_LINE_LOOP)
-            for i in range(N):
-                a = 2 * math.pi * i / N
-                glColor4f(0.3, 0.4, 0.6, 0.25)
-                glVertex3f(r * math.cos(a), 0.0, r * math.sin(a))
+            glColor4f(0.3, 0.4, 0.6, 0.25)
+            for (x, z) in pts:
+                glVertex3f(x, 0.0, z)
             glEnd()
+
         glDisable(GL_BLEND)
         glEnable(GL_DEPTH_TEST)
 

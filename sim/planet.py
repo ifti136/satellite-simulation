@@ -9,6 +9,9 @@ Each Planet owns:
   • solar_orbit  : Orbit around the Sun
   • moons        : list of Moon objects (orbiting this planet)
   • rings        : optional RingDisc object (Saturn etc.)
+
+Circle geometry (RingDisc) uses the Midpoint Circle Algorithm via
+midpoint_circle.circle_points() — no math.sin/cos in the vertex loop.
 """
 import math
 import numpy as np
@@ -16,9 +19,10 @@ from OpenGL.GL import *
 
 import shaders
 import config
-from sphere_gen    import generate_sphere
-from texture_loader import load_texture
-from orbit         import Orbit
+from sphere_gen      import generate_sphere
+from texture_loader  import load_texture
+from orbit           import Orbit
+from midpoint_circle import circle_points
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -96,7 +100,13 @@ def _draw_vbos(vbo_v, vbo_n, vbo_u, ibo, index_count):
 # ── Ring disc ─────────────────────────────────────────────────────────────────
 
 class RingDisc:
-    """Flat ring disc drawn as a triangle strip in the XZ plane."""
+    """
+    Flat ring disc drawn as a triangle strip in the XZ plane.
+
+    Vertex positions on the inner and outer circles are generated with the
+    Midpoint Circle Algorithm (via midpoint_circle.circle_points) — no
+    per-vertex math.sin / math.cos calls.
+    """
 
     SEGMENTS = 120
 
@@ -114,14 +124,21 @@ class RingDisc:
 
     def _build_vbo(self):
         N = self.SEGMENTS
+
+        # ── MCA circle points ─────────────────────────────────────────────────
+        # circle_points(N) returns N (cos_θ, sin_θ) pairs via the Midpoint
+        # Circle Algorithm.  We append the first point to close the seam,
+        # giving N+1 entries — identical to the original range(N+1) loop.
+        unit_pts = circle_points(N)          # length N
+        unit_pts = unit_pts + [unit_pts[0]]  # close seam → length N+1
+
         verts, uvs, indices = [], [], []
-        for i in range(N + 1):
-            theta = 2 * math.pi * i / N
-            ct, st = math.cos(theta), math.sin(theta)
-            # inner vertex
+
+        for i, (ct, st) in enumerate(unit_pts):
+            # inner ring vertex  (u=0)
             verts += [self._inner * ct, 0.0, self._inner * st]
             uvs   += [0.0, i / N]
-            # outer vertex
+            # outer ring vertex  (u=1)
             verts += [self._outer * ct, 0.0, self._outer * st]
             uvs   += [1.0, i / N]
 
@@ -134,8 +151,8 @@ class RingDisc:
         self._ibo   = glGenBuffers(1)
         self._idx_count = len(indices)
 
-        v = np.array(verts, dtype=np.float32)
-        u = np.array(uvs,   dtype=np.float32)
+        v   = np.array(verts,   dtype=np.float32)
+        u   = np.array(uvs,     dtype=np.float32)
         idx = np.array(indices, dtype=np.int32)
 
         glBindBuffer(GL_ARRAY_BUFFER, self._vbo_v)

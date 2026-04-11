@@ -9,6 +9,9 @@ Architecture
   ISS / Hubble / TDRS — concrete classes, auto-pick model or fallback
 
 The factory function make_satellite(name) returns the correct concrete type.
+
+FallbackTDRS's parabolic dish fan uses the Midpoint Circle Algorithm via
+midpoint_circle.circle_points() instead of per-vertex math.sin/cos.
 """
 import math
 import collections
@@ -17,8 +20,9 @@ from OpenGL.GL import *
 
 import shaders
 import config
-from orbit        import Orbit
-from model_loader import load_obj, _auto_scale
+from orbit           import Orbit
+from model_loader    import load_obj, _auto_scale
+from midpoint_circle import circle_points
 
 
 # ── Global sun direction (updated by scene.py each frame) ────────────────────
@@ -188,7 +192,7 @@ class ModelSatellite(Satellite):
         super().__init__(name)
         model_path = self.data.get("model", "")
         verts, norms, uvs, indices = load_obj(model_path)
-        verts = _auto_scale(verts, target_radius=0.4)   # fit within 0.4 units
+        verts = _auto_scale(verts, target_radius=0.4)
         self._vbo_v, self._vbo_n, self._vbo_u, self._ibo = _upload(verts, norms, uvs, indices)
         self._idx_count = len(indices)
 
@@ -264,10 +268,18 @@ class FallbackTDRS(Satellite):
       • Two solar array wings extending left/right (±Z) from the bus,
         each made of two panel segments with a slow tracking rotation
       • One omni antenna stub on top (+Y)
+
+    The dish rim circle (GL_TRIANGLE_FAN) uses MCA-derived points via
+    circle_points() — replacing the original math.cos/sin per-vertex loop.
     """
 
-    # Number of sides used to approximate the dish rim (octagon)
+    # Number of sides used to approximate the dish rim
     _DISH_SEGS = 8
+
+    # Pre-compute dish rim points once at class level (shared across instances).
+    # circle_points(N) returns (cos_θ, sin_θ) for N uniform angles via MCA.
+    _DISH_PTS: list[tuple[float, float]] = circle_points(_DISH_SEGS) + \
+                                           [circle_points(_DISH_SEGS)[0]]  # close fan
 
     def _draw_body(self, sun_eye_dir: np.ndarray) -> None:
         glUseProgram(self._shader)
@@ -278,8 +290,8 @@ class FallbackTDRS(Satellite):
 
         body_col  = self.data["color"]
         panel_col = self.data["panel_color"]
-        dish_col  = (0.92, 0.92, 0.90)   # off-white reflector mesh
-        hub_col   = (0.55, 0.55, 0.55)   # dark grey hub
+        dish_col  = (0.92, 0.92, 0.90)
+        hub_col   = (0.55, 0.55, 0.55)
 
         # ── Central bus ───────────────────────────────────────────────────────
         glUniform3f(self._u_color, *body_col)
@@ -292,20 +304,17 @@ class FallbackTDRS(Satellite):
         _draw_box(0.02, 0.06, 0.02)
         glPopMatrix()
 
-        # ── Solar array wings (left/right, slow tracking rotation) ────────────
-        # Each wing = two rectangular panels connected end-to-end
+        # ── Solar array wings ─────────────────────────────────────────────────
         wing_rot = math.degrees(self._panel_angle * 0.08)
         for side in (-1, 1):
             glPushMatrix()
             glTranslatef(0.0, 0.0, side * 0.18)
-            glRotatef(wing_rot, 0, 0, 1)          # slow sun-tracking spin
-            # inner panel
+            glRotatef(wing_rot, 0, 0, 1)
             glPushMatrix()
             glTranslatef(0.0, 0.0, side * 0.18)
             glUniform3f(self._u_color, *panel_col)
             _draw_panel(0.38, 0.14, 0, 1, 0)
             glPopMatrix()
-            # outer panel
             glPushMatrix()
             glTranslatef(0.0, 0.0, side * 0.40)
             glUniform3f(self._u_color, *panel_col)
@@ -314,7 +323,9 @@ class FallbackTDRS(Satellite):
             glPopMatrix()
 
         # ── Dish antennas on booms (fore +X, aft -X) ─────────────────────────
-        # A TDRS has two large single-access dish antennas on deployable booms.
+        dish_r     = 0.20
+        dish_depth = 0.06
+
         for sign, boom_len in ((1, 0.28), (-1, 0.28)):
             # Boom strut
             glPushMatrix()
@@ -331,23 +342,20 @@ class FallbackTDRS(Satellite):
             _draw_box(0.04, 0.04, 0.04)
             glPopMatrix()
 
-            # Dish reflector — octagonal fan of triangles facing outward
-            dish_r  = 0.20          # dish radius
-            dish_depth = 0.06       # parabolic depth offset at centre
-            N = self._DISH_SEGS
+            # Dish reflector — MCA-derived octagonal fan
+            # _DISH_PTS gives (cos_θ, sin_θ) for each rim vertex, computed
+            # once at class definition via circle_points().  No trig here.
             glUniform3f(self._u_color, *dish_col)
-            # normal points in ±X (outward from satellite)
             nx = float(sign)
             glBegin(GL_TRIANGLE_FAN)
-            # Centre (slightly recessed inward to suggest parabolic shape)
+            # Centre vertex (recessed to suggest parabolic depth)
             glNormal3f(nx, 0.0, 0.0)
             glVertex3f(dish_x - sign * dish_depth, 0.0, 0.0)
-            for i in range(N + 1):
-                theta = 2 * math.pi * i / N
-                cy = dish_r * math.cos(theta)
-                cz = dish_r * math.sin(theta)
-                # rim tilts normal outward
-                glNormal3f(nx * 0.7, cy / dish_r * 0.3, cz / dish_r * 0.3)
+            # Rim vertices from MCA lookup
+            for (cos_t, sin_t) in self._DISH_PTS:
+                cy = dish_r * cos_t
+                cz = dish_r * sin_t
+                glNormal3f(nx * 0.7, cos_t * 0.3, sin_t * 0.3)
                 glVertex3f(dish_x, cy, cz)
             glEnd()
 
